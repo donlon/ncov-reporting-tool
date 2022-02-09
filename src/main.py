@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
+import datetime
 import json
+import math
 import os
+import random
 import time
-from datetime import datetime
 from email import utils as email_utils
 
 from retry import retry
@@ -40,7 +42,7 @@ def send_request_2(post_data, cookie):
 
 
 def send_request(task_id, data, uid, cookie):
-    now = datetime.now()
+    now = datetime.datetime.now()
 
     date = now.strftime('%Y%m%d')  # '20200927'
     created = str(int(time.time()))
@@ -59,18 +61,55 @@ def send_request(task_id, data, uid, cookie):
     log(task_id, date, post_data, r.json())
 
 
-def do_task(payload):
-    print('do task:')
-    print(json.dumps(payload))
+def rayleigh_dist(sigma, upbound=math.inf):
+    u = random.random()
+    x = sigma * math.sqrt(-2 * math.log(u))
+    if x > upbound:
+        if upbound > 0:
+            return rayleigh_dist(sigma, upbound)
+        else:
+            return upbound
+    else:
+        return x
+
+
+def do_task_v(payload, cancel_job=False):
+    print('do task:', json.dumps(payload))
 
     with open(payload['profile_path'], 'r', encoding='utf-8') as f:
         data = yaml.load(f, Loader=yaml.FullLoader)
 
     send_request(payload['id'], data, payload['uid'], payload['cookie'])
 
+    if cancel_job:
+        return schedule.CancelJob
+
+
+def pre_do_task(payload):
+    sigma = payload['rayleigh_sigma']
+    upbound = payload['rayleigh_upbound']
+    # delay a random period and then send the request
+    if sigma > 5 and upbound > 5: # at least 5 secs
+        delay_sec = math.floor(rayleigh_dist(sigma, upbound))
+        print('scheduled to send request after %d secs' % delay_sec)
+        schedule.every(delay_sec).seconds.do(do_task_v, payload, cancel_job=True)
+    else:
+        do_task_v(payload)
+
+
+def parse_time_string(s):
+    if isinstance(s, str):
+        if s.endswith('s'):
+            return int(s[:-1])
+        elif s.endswith('m'):
+            return 60 * int(s[:-1])
+        else:
+            return None
+    else:
+        return s
+
 
 def create_task(task):
-    payload = {}
     if 'id' not in task:
         print('Error: id is not definded')
         return
@@ -83,9 +122,15 @@ def create_task(task):
     if 'profile' not in task:
         print('Error: profile is not definded')
         return
-    payload['id'] = task['id']
-    payload['uid'] = task['uid']
-    payload['cookie'] = task['cookie']
+    payload = {
+        'id': task['id'],
+        'uid': task['uid'],
+        'cookie': task['cookie'],
+        'profile_path': None,
+        'time': None,
+        'rayleigh_sigma': 0,
+        'rayleigh_upbound': 0,
+    }
 
     profile_path = os.path.join(data_dir, task['profile'])
     if not os.path.exists(profile_path):
@@ -100,15 +145,31 @@ def create_task(task):
 
     payload['profile_path'] = profile_path
 
-    if 'time' not in task:
-        send_time = '07:00'
-    else:
-        send_time = task['time']
-    payload['time'] = send_time
+    if 'rayleigh_sigma' in task:
+        rayleigh_sigma = parse_time_string(task['rayleigh_sigma'])
+        payload['rayleigh_sigma'] = rayleigh_sigma
+        if rayleigh_sigma is None:
+            # TODO: check if rayleigh_sigma is a number
+            print('Error: unknown rayleigh_sigma format: %s' % rayleigh_sigma)
+            return False
 
-    print('Loaded task: id=%s, profile=%s, uid=%d, time=%s' %
-          (str(payload['id']), profile_path, payload['uid'], send_time))
-    schedule.every().day.at(send_time).do(do_task, payload)
+    if 'rayleigh_upbound' in task:
+        rayleigh_upbound = parse_time_string(task['rayleigh_upbound'])
+        payload['rayleigh_upbound'] = rayleigh_upbound
+        if rayleigh_upbound is None:
+            # TODO: check if rayleigh_upbound is a number
+            print('Error: unknown rayleigh_upbound format: %s' % rayleigh_upbound)
+            return False
+
+    if 'time' not in task:
+        base_send_time = '07:00'
+    else:
+        base_send_time = task['time']
+    payload['time'] = base_send_time
+
+    print('Loaded task: id=%s, profile=%s, uid=%d, time=%s+~%ds' %
+          (str(payload['id']), profile_path, payload['uid'], base_send_time, rayleigh_sigma))
+    schedule.every().day.at(base_send_time).do(pre_do_task, payload)
     return True
 
 
@@ -141,7 +202,7 @@ server_time_offset = 0
 
 @retry(exceptions=Exception, tries=10, delay=20)
 def update_server_time_offset():
-    server_time_offset = fetch_server_time() - datetime.utcnow().timestamp()
+    server_time_offset = fetch_server_time() - datetime.datetime.utcnow().timestamp()
     print('Server time offset: ' + str(server_time_offset))
 
 
@@ -154,7 +215,7 @@ if __name__ == "__main__":
         print('Can\'t load tasks')
         exit(1)
 
-    print('Waiting for tasks...')
+    print('Waiting for the scheduler...')
     while True:
         schedule.run_pending()
         time.sleep(1)
