@@ -172,7 +172,7 @@ def create_task(task):
 
     print('Loaded task: id=%s, profile=%s, uid=%d, time=%s+~%ds' % (
             str(payload['id']), profile_path, payload['uid'],
-            payload['base_send_time'], payload['rayleigh_sigma']))
+            base_send_time, payload['rayleigh_sigma']))
     schedule.every().day.at(base_send_time).do(pre_do_task, payload)
     return True
 
