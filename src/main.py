@@ -110,6 +110,9 @@ def parse_time_string(s):
 
 
 def create_task(task):
+    if 'enable' in task and not task['enable']:
+        print('skip disabled task...')
+        return True
     if 'id' not in task:
         print('Error: id is not definded')
         return
