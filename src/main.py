@@ -12,7 +12,7 @@ import schedule
 import yaml
 
 data_dir = os.getenv('NRTOOL_DATA_PATH') or '/data'
-log_dir = os.getenv('NRTOOL_LOG_PATH') or '/data/log'
+log_dir = os.getenv('NRTOOL_LOG_PATH') or os.path.join(data_dir, 'log')
 
 
 def log(task_id, date, payload, response):
@@ -89,7 +89,7 @@ def create_task(task):
 
     profile_path = os.path.join(data_dir, task['profile'])
     if not os.path.exists(profile_path):
-        print('Error: id=%s: profile data is not found' % str(payload['id']))
+        print('Error: id=%s: profile \'%s\' is not found' % (str(payload['id']), profile_path))
         return
     with open(profile_path, 'r', encoding='utf-8') as f:
         try:
