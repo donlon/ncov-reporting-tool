@@ -5,6 +5,7 @@ import json
 import math
 import os
 import random
+import re
 import time
 from email.utils import parsedate
 
@@ -111,12 +112,16 @@ def do_task_check(payload):
 
 def parse_time_string(s):
     if isinstance(s, str):
-        if s.endswith('s'):
-            return int(s[:-1])
-        elif s.endswith('m'):
-            return 60 * int(s[:-1])
-        else:
+        m = re.match('((?P<min>\d+)m\s*)?((?P<sec>\d+)s)?', s)
+        if not m:
             return None
+        min = m['min']
+        sec = m['sec']
+        if not min and not sec:
+            return None
+        min = min or 0
+        sec = sec or 0
+        return 60 * int(min) + int(sec)
     else:
         return s
 
